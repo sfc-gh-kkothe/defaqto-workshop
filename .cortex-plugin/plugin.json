@@ -1,0 +1,9 @@
+{
+  "name": "defaqto-workshop",
+  "version": "1.0.0",
+  "description": "Defaqto short-term insurance workshop. The lab itself runs from notebooks/ (see README.md); open this folder in Cortex Code Desktop only to extend the dashboards or the semantic view.",
+  "author": {
+    "name": "Snowflake Solution Engineering"
+  },
+  "skills": ["skills"]
+}

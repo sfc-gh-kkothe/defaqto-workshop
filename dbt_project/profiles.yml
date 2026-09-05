@@ -1,0 +1,23 @@
+# profiles.yml for Snowflake-native dbt execution.
+#
+# This file MUST live inside the project directory, alongside dbt_project.yml -
+# not in ~/.dbt/. snow dbt deploy bundles it into the deployed project.
+#
+# NO password, NO authenticator, NO env_var() anywhere: dbt runs inside
+# Snowflake, authenticated by the session that invokes it. Any of those three
+# will fail the deploy with "Unsupported fields found".
+#
+# Author: Ketki Kothe (Snowflake Solution Engineering)
+
+defaqto_salesdb:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: 'not needed'
+      user: 'not needed'
+      role: ACCOUNTADMIN
+      database: DEFAQTO_DB
+      schema: DBT
+      warehouse: COMPUTE_WH
+      threads: 4

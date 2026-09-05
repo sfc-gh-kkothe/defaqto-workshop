@@ -1,0 +1,15 @@
+# Seed data is deliberately not distributed - see README.md
+data/
+*.csv
+*.csv.gz
+*.parquet
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+.DS_Store
+target/
+dbt_packages/
+logs/

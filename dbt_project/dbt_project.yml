@@ -1,0 +1,38 @@
+name: 'defaqto_salesdb'
+version: '1.0.0'
+config-version: 2
+
+# Author: Ketki Kothe (Snowflake Solution Engineering)
+# Built for the Snowflake x Defaqto workshop, 8 September 2026.
+# Aggregation logic supplied by the Defaqto data lead.
+
+profile: 'defaqto_salesdb'
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  defaqto_salesdb:
+    staging:
+      # Views, not tables. In the Dynamic Table version the staging layer HAD to
+      # be materialised, purely so incremental refresh could group on a simple
+      # column. dbt has no such constraint, so this costs no storage.
+      +schema: STAGING
+      +materialized: view
+    marts:
+      +schema: MARTS
+      +materialized: table
+
+# macros/generate_schema_name.sql prefixes every schema with the attendee's alias,
+# so these become DBT_<ALIAS>_STAGING and DBT_<ALIAS>_MARTS. Run with:
+#   snow dbt execute ... DEFAQTO_SALESDB_DBT run --vars '{alias: your_initials}'
+# Omitting the alias raises a compiler error rather than pooling everyone into one
+# schema.

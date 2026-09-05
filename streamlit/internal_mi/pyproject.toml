@@ -1,0 +1,23 @@
+# Container runtime. This file MUST exist or the app fails at start with
+# "Installing dependencies failed because the pyproject.toml file does not exist".
+#
+# Versions ARE pinned here, which is only possible because the app is deployed with
+#   ARTIFACT_REPOSITORIES = (snowflake.snowpark.pypi_shared_repository)
+# Snowflake's built-in PyPI mirror. That needs no external access integration and no
+# outbound internet: just GRANT DATABASE ROLE SNOWFLAKE.PYPI_REPOSITORY_USER.
+#
+# Without an artifact repository you cannot pin ANY version - not even Streamlit's -
+# and pandas is not in the pre-installed set at all, so the Altair charts would fail.
+#
+# streamlit[snowflake] pulls in snowflake-snowpark-python.
+# 1.53.1 is the floor for restricted caller's rights, kept here so a future move to
+# caller's rights does not need a version hunt.
+[project]
+name = "defaqto-internal-mi"
+version = "1.0.0"
+requires-python = "==3.11.*"
+dependencies = [
+    "streamlit[snowflake]>=1.53.1",
+    "pandas>=2.0.0",
+    "altair>=5.0.0",
+]

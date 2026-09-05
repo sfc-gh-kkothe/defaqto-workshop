@@ -1,0 +1,119 @@
+version: 2
+
+# Author: Ketki Kothe (Snowflake Solution Engineering)
+# Snowflake x Defaqto workshop, 8 September 2026.
+
+sources:
+  - name: raw
+    database: "{{ target.database }}"
+    schema: RAW
+    description: >
+      The landed Comparison Creator extract. STC_* files are short-term car only;
+      the SALESDB_* files carry all ten product types, of which Breakdown is the
+      largest line by volume. Nothing in this schema is ever written to.
+    tables:
+      - name: SALESDB_SALESEVENTS
+        description: >
+          One row per sale or cancellation, across all ten product types. Has no
+          primary key, and QUOTE_ID is minted per product database - so the same
+          value means different things depending on PRODUCTTYPE_ID.
+        columns:
+          - name: QUOTE_ID
+            description: "Quote reference. NOT unique, and NOT unique across products."
+          - name: PRODUCTTYPE_ID
+            description: "11 = Short Term Car, 1 = Breakdown."
+          - name: PROVIDER_ID
+            description: >
+              Provider x comparison-site key, NOT a provider key. The same insurer
+              carries several IDs, one per site they appear on.
+      - name: STC_QUOTES
+        description: "One row per short-term car comparison journey."
+      - name: STC_RATES
+        description: >
+          One row per price returned by a provider. STATUS = 1 means priced,
+          STATUS = 3 means declined - and declines carry PRICE = 0, so any
+          'did this quote get a price' test needs both conditions. Only about
+          half of quotes appear here at all.
+      - name: STC_CLICKS
+        description: >
+          One row per click-out to a provider's own site. Resolves to a specific
+          RATE_ID, so it records exactly which price the shopper chose.
+
+models:
+  # -------------------------------------------------------------------------
+  - name: stg_sales_events
+    description: >
+      Sales events with the sale date derived from DATE_TIME, matching Mike's
+      aggregation logic. Materialised as a VIEW - the Dynamic Table version had
+      to be a table so incremental refresh could group on a simple column, but
+      dbt has no such constraint.
+    columns:
+      - name: quote_id
+        description: "Quote reference. Deliberately NOT tested for uniqueness - it is not unique."
+        tests:
+          - not_null
+      - name: sale_date
+        description: "CAST(DATE_TIME AS DATE), the grain Mike's logic groups on."
+        tests:
+          - not_null
+      - name: producttype_id
+        description: "Product type. Ten valid values."
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 5, 6, 7, 8, 9, 10, 11]
+              quote: false
+      - name: gwp
+        description: "Gross written premium. Can legitimately be 0 - some providers report commission without premium."
+      - name: commission
+        description: "Commission earned."
+
+  # -------------------------------------------------------------------------
+  - name: salesdb_aggregate
+    description: >
+      Daily sales rollup - the replacement for the pre-aggregated
+      SalesDB_Aggregate file. One row per date x affiliate x provider x product
+      type x cancellation flag. Aggregation logic supplied by the Defaqto data lead.
+    columns:
+      - name: sale_date
+        tests:
+          - not_null
+      - name: provider_id
+        tests:
+          - not_null
+      - name: product_type_id
+        tests:
+          - not_null
+      - name: row_count
+        description: "Number of sales event rows in this group."
+        tests:
+          - not_null
+      - name: distinct_quotes
+        description: >
+          Count of distinct quotes in this group. NOT ADDITIVE - summing this
+          column across rows overstates the true distinct count, because one
+          quote can appear under several grouping keys.
+        tests:
+          - not_null
+      - name: total_gwp
+        tests:
+          - not_null
+      - name: total_commission
+        tests:
+          - not_null
+
+  # -------------------------------------------------------------------------
+  - name: fct_stc_funnel_daily
+    description: >
+      The short-term car funnel by day: journeys started, quotes that received a
+      price, quotes that clicked out to a provider, and quotes that converted to
+      a sale. Only about half of journeys ever receive a usable price, which is
+      not obvious from the sales data alone.
+    columns:
+      - name: quote_date
+        tests:
+          - not_null
+          - unique
+      - name: quotes_started
+        tests:
+          - not_null
