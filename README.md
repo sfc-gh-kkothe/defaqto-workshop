@@ -51,6 +51,7 @@ Each attendee works in their **own** `TRANSFORMED_<alias>` schema, so nobody ove
 | 2 | `notebooks/02_dbt_project.ipynb` | the same transforms as a dbt project (optional) | 30 min |
 | 3 | `notebooks/03_semantic_view_talk_to_your_data.ipynb` | semantic view + Cortex Agent | 45 min |
 | 4 | `notebooks/04_row_access_policy.ipynb` | role, user, policy, and the isolation proof | 25 min |
+| 5 | `notebooks/05_deploy_your_dashboards.ipynb` | your own two Streamlit apps, deployed from this repo | 20 min |
 
 Run them in order. Each begins with an alias cell — **edit it** before running anything else.
 
@@ -62,7 +63,7 @@ Run once as `ACCOUNTADMIN`, before the room arrives:
 |---|---|
 | `setup/00_admin_setup.sql` | database, `RAW` schema, warehouse, workshop role, cross-region inference, PyPI grant |
 | `setup/01_load_raw_data.sql` | load `RAW` from your own seed files (see [Data](#data)) |
-| `setup/02_deploy_streamlits.sql` | deploy both dashboards from this repo or a stage |
+| `setup/02_deploy_streamlits.sql` | one shared pair of dashboards, if you would rather attendees did not build their own |
 | `setup/99_teardown.sql` | remove everything the workshop creates, **keep `RAW`** |
 
 Two account-level prerequisites are easy to miss and both fail confusingly:
@@ -74,6 +75,16 @@ Two account-level prerequisites are easy to miss and both fail confusingly:
 
 Attendees open the notebooks via **Projects » Workspaces » Create Workspace » From Git
 repository**, pointed at this repo. That flow is Snowsight-only; there is no DDL for it.
+
+Notebook 05 deploys one Streamlit app per attendee, each of which is a separate SPCS
+service, so it also needs:
+
+- a **Git repository object** in the account, pointed at this repo, and fetched
+- a **dedicated compute pool**. `SYSTEM_COMPUTE_POOL_CPU` is capped at 2 nodes and cannot
+  be resized, so size your own for roughly half a node per app and suspend it afterwards
+
+`ALTER GIT REPOSITORY ... FETCH` is not automatic. After any push, run it or Snowflake
+keeps deploying the commit it last saw.
 
 ## Data
 
