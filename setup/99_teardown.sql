@@ -23,14 +23,28 @@ USE SCHEMA DEFAQTO_DB.TRANSFORMED_KKOTHE;
 
 
 /* -- 1. Streamlit apps ---------------------------------------------------- */
-/* First, because each container app owns an SPCS service that holds the compute
-   pool busy. Both locations are listed: apps deployed by 02_deploy_streamlits.sql
-   live in DEFAQTO_DB.APPS, earlier ones lived in the attendee schema. */
+/* First, because each container app owns an SPCS service that holds a compute
+   pool busy.
 
-DROP STREAMLIT IF EXISTS DEFAQTO_DB.APPS.DEFAQTO_INTERNAL_MI;
-DROP STREAMLIT IF EXISTS DEFAQTO_DB.APPS.DEFAQTO_PARTNER_INSIGHTS;
-DROP STREAMLIT IF EXISTS DEFAQTO_INTERNAL_MI_SIMPLE;
-DROP STREAMLIT IF EXISTS DEFAQTO_PARTNER_INSIGHTS_SIMPLE;
+   Notebook 05 names apps with the attendee's alias, so set it once here. The
+   un-suffixed pair is also dropped: earlier versions of notebook 05 created
+   those, and they are easy to leave behind. */
+
+SET td_alias = 'kkothe';                 -- match the schema on line 20
+
+SET here = (SELECT CURRENT_DATABASE() || '.' || CURRENT_SCHEMA());
+SET app1 = (SELECT $here || '.DEFAQTO_INTERNAL_MI_'      || UPPER($td_alias));
+SET app2 = (SELECT $here || '.DEFAQTO_PARTNER_INSIGHTS_' || UPPER($td_alias));
+
+DROP STREAMLIT IF EXISTS IDENTIFIER($app1);
+DROP STREAMLIT IF EXISTS IDENTIFIER($app2);
+
+DROP STREAMLIT IF EXISTS DEFAQTO_INTERNAL_MI;
+DROP STREAMLIT IF EXISTS DEFAQTO_PARTNER_INSIGHTS;
+
+/* Confirm none are left before moving on - a surviving app keeps its service,
+   and its schema, alive. */
+SHOW STREAMLITS IN ACCOUNT;
 
 
 /* -- 2. Agent and semantic view ------------------------------------------- */
@@ -108,7 +122,14 @@ DROP SCHEMA IF EXISTS DEFAQTO_DB.APPS CASCADE;
 /* This removes the notebooks. Personal DEFAULT$ workspaces in USER$<name>.PUBLIC
    are left alone - they are not workshop objects. */
 
-DROP WORKSPACE IF EXISTS DEFAQTO_DB.PUBLIC.WORKSHOP;
+/* COMMENTED OUT DELIBERATELY.
+
+   Once this workspace is gone, the only route back is a workspace created FROM
+   GIT - which is a Snowsight-UI-only flow, and is PRIVATE to each user. A
+   shared workspace cannot be git-backed. So do not drop this until you have
+   created a git-backed workspace and run a notebook in it successfully.
+
+   DROP WORKSPACE IF EXISTS DEFAQTO_DB.PUBLIC.WORKSHOP;                       */
 
 
 /* -- 10. Partner user and role -------------------------------------------- */
@@ -129,6 +150,7 @@ DROP ROLE IF EXISTS PARTNER_COVERTIME;
    Workspace sessions, so it is rarely only yours:
        SHOW SERVICES IN COMPUTE POOL SYSTEM_COMPUTE_POOL_CPU;                 */
 
+ALTER COMPUTE POOL IF EXISTS DEFAQTO_HOL_POOL        SUSPEND;
 ALTER COMPUTE POOL IF EXISTS SYSTEM_COMPUTE_POOL_CPU SUSPEND;
 ALTER WAREHOUSE    IF EXISTS COMPUTE_WH              SUSPEND;
 
@@ -153,5 +175,8 @@ ORDER  BY TABLE_NAME;
    Change tracking on RAW                notebook 01 needs it again next time
    COMPUTE_WH                            suspended, not dropped
    DEFAQTO_HOL_ROLE                      created by 00_admin_setup.sql
+   DEFAQTO_DB.PUBLIC                     holds the git repository object
+   WORKSHOP_REPO + the API integration   drop these and you cannot pull from git
+   DEFAQTO_HOL_POOL                      suspended, not dropped
    The dbt project and DBT_* schemas     see 99b for the opt-in drops
 ============================================================================ */
