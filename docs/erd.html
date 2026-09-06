@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="snowflake-source" content="cortex-agent-authored" />
+<title>Defaqto SalesDB — Raw file ERD</title>
+
+<script type="application/json" id="snowflake-report-metadata">
+{
+  "generated": "2026-08-24",
+  "intent": "Entity relationship diagram for the eight raw extracts Defaqto supplied for the Comparison Creator / SalesDB workshop. Documents the real primary keys, cardinalities and coverage measured from the loaded data, and calls out the three joins that silently produce wrong answers. Intended for the workshop pack and the PRD.",
+  "dataSources": [
+    { "type": "query", "warehouse": "TOASTYTALK_D4B_DEMO_WH",
+      "sql": "SELECT COUNT(*), COUNT(DISTINCT QUOTE_ID) FROM DEFAQTO_DEMO.SALESDB.RAW_STC_QUOTES -- repeated per raw table to establish PK uniqueness and coverage" },
+    { "type": "query",
+      "sql": "SELECT s.PRODUCT_TYPE_NAME, COUNT(*), SUM(IFF(q.QUOTE_ID IS NOT NULL,1,0)) FROM RAW_SALES_EVENTS s LEFT JOIN RAW_STC_QUOTES q ON q.QUOTE_ID=s.QUOTE_ID GROUP BY 1 -- quantifies the cross-product QUOTE_ID collision" },
+    { "type": "query",
+      "sql": "SELECT COUNT(*), ROUND(SUM(s.GWP),2) FROM RAW_SALES_EVENTS s JOIN RAW_STC_QUOTES q ON q.QUOTE_ID=s.QUOTE_ID WHERE s.PRODUCTTYPE_ID <> 11 -- 10,032 rows / GBP 1,645,091 of false matches" }
+  ],
+  "sections": [
+    { "id": "erd", "title": "Entity relationship diagram",
+      "producerNotes": "Every row count, key uniqueness claim and coverage percentage on this diagram was measured against the loaded tables, not inferred from column names. Connector paths are computed at runtime from element bounding boxes and redrawn on resize. Trap cards are click-to-expand, wired with a single delegated addEventListener - no inline handlers, no external scripts, no network calls." },
+    { "id": "traps", "title": "The three joins that lie",
+      "producerNotes": "These are the workshop's data-quality teaching moments. Trap 1 is the strongest: omitting PRODUCTTYPE_ID = 11 inflates short-term car GWP by 54.4%. All three are reproducible from the SQL in dataSources." }
+  ]
+}
+</script>
+
+<style>
+  :root {
+    color-scheme: light dark;
+    --page:     light-dark(#F4F9FC, #0D1826);
+    --panel:    light-dark(#FFFFFF, #16202E);
+    --ink:      light-dark(#0E2233, #E6EDF5);
+    --soft:     light-dark(#5A6B7C, #9DAEC1);
+    --head:     light-dark(#082032, #F2F7FC);
+    --rule:     light-dark(#CFE3F0, #2B3B4E);
+    --quote:    light-dark(#1B87BD, #58C6EA);
+    --quote-bg: light-dark(#F1F9FD, #14252F);
+    --sales:    light-dark(#C97A12, #F0AE5C);
+    --sales-bg: light-dark(#FFF9F0, #2A2114);
+    --bridge:   light-dark(#2E9E63, #63C795);
+    --bridge-bg:light-dark(#F1FAF5, #14261D);
+    --bad:      light-dark(#C0392B, #F08379);
+    --bad-bg:   light-dark(#FDF3F2, #2C1A18);
+    --shadow:   light-dark(0 1px 3px rgba(10,40,70,.10), 0 1px 3px rgba(0,0,0,.45));
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:0 20px 60px; background:var(--page); color:var(--ink);
+         font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; line-height:1.5; }
+  .wrap { max-width:1300px; margin:0 auto; }
+  header { padding:30px 4px 18px; }
+  h1 { margin:0 0 6px; font-size:27px; letter-spacing:-0.02em; color:var(--head); }
+  .lede { margin:0; color:var(--soft); font-size:14.5px; max-width:80ch; }
+  h2 { font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--soft);
+       margin:26px 0 10px; font-weight:700; }
+
+  .board { position:relative; background:var(--panel); border:1px solid var(--rule);
+           border-radius:14px; padding:20px; box-shadow:var(--shadow); }
+  svg.wires { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; }
+  svg.wires path { fill:none; stroke-width:1.6; }
+  svg.wires path.ok  { stroke:var(--quote);  opacity:.55; }
+  svg.wires path.xsys{ stroke:var(--bad);    opacity:.85; stroke-dasharray:6 4; }
+  svg.wires path.brg { stroke:var(--bridge); opacity:.6;  stroke-dasharray:3 3; }
+  svg.wires text { font:600 10.5px -apple-system, system-ui, sans-serif; fill:var(--soft); }
+  .zone { position:relative; z-index:1; }
+
+  .grid { display:grid; gap:16px; align-items:start; }
+  .g-hub  { grid-template-columns: 1fr 1.15fr 1fr; }
+  .g-two  { grid-template-columns: 1fr 1fr; }
+  .stack  { display:flex; flex-direction:column; gap:12px; }
+
+  .tbl { border:1.5px solid var(--rule); border-radius:10px; background:var(--panel);
+         overflow:hidden; box-shadow:var(--shadow); }
+  .tbl.q { border-color:var(--quote);  background:var(--quote-bg); }
+  .tbl.s { border-color:var(--sales);  background:var(--sales-bg); }
+  .tbl.b { border-color:var(--bridge); background:var(--bridge-bg); }
+  .tbl .th { padding:8px 11px; border-bottom:1px solid var(--rule); }
+  .tbl .nm { display:block; font-weight:700; font-size:13px; color:var(--head); }
+  .tbl .fn { display:block; font-size:11px; color:var(--soft); margin-top:1px; }
+  .tbl .rc { display:block; font-size:11px; font-weight:700; margin-top:3px; }
+  .tbl.q .rc { color:var(--quote); } .tbl.s .rc { color:var(--sales); } .tbl.b .rc { color:var(--bridge); }
+  .cols { list-style:none; margin:0; padding:6px 11px 9px; font-size:11.5px; }
+  .cols li { padding:1.5px 0; display:flex; gap:6px; align-items:baseline; }
+  .kb { flex:0 0 auto; font:700 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+        padding:1px 4px; border-radius:3px; letter-spacing:.03em; }
+  .kb.pk { background:light-dark(#0E5A80,#7FD6F2); color:light-dark(#fff,#0B1A24); }
+  .kb.fk { background:light-dark(#B0741A,#F0AE5C); color:light-dark(#fff,#2A2114); }
+  .kb.gr { background:light-dark(#7C8B99,#3D5063); color:#fff; }
+  .cols .more { color:var(--soft); font-style:italic; }
+  .cov { font-size:11px; color:var(--soft); padding:0 11px 9px; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--soft);
+            margin-top:14px; padding-top:12px; border-top:1px solid var(--rule); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .sw { width:22px; height:0; border-top-width:2px; border-top-style:solid; display:inline-block; }
+
+  .traps { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  button.trap { text-align:left; font:inherit; color:inherit; cursor:pointer;
+        background:var(--bad-bg); border:1.5px solid var(--bad); border-radius:10px; padding:12px 13px;
+        transition:transform .12s ease, box-shadow .12s ease; }
+  button.trap:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
+  button.trap:focus-visible { outline:3px solid var(--quote); outline-offset:2px; }
+  .trap .tt { display:block; font-weight:700; font-size:13px; color:var(--bad); }
+  .trap .ts { display:block; font-size:12px; color:var(--ink); margin-top:4px; }
+  .trap .tm { display:block; font-size:11.5px; color:var(--soft); margin-top:5px; }
+  #detail[hidden] { display:none; }
+  #detail { margin-top:12px; border:1.5px solid var(--bad); border-radius:10px;
+            background:var(--bad-bg); padding:15px 17px; }
+  #detail h3 { margin:0 0 6px; font-size:15px; color:var(--head); }
+  #detail p { margin:8px 0 0; font-size:13.5px; max-width:90ch; }
+  #detail pre { margin:10px 0 0; padding:10px 12px; overflow-x:auto;
+                background:light-dark(#0E2233,#0A121C); color:#E6EDF5; border-radius:8px;
+                font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #closeBtn { float:right; font:inherit; cursor:pointer; background:none; border:1px solid var(--rule);
+              border-radius:8px; padding:3px 10px; font-size:12px; color:var(--soft); }
+  footer { margin-top:22px; font-size:12px; color:var(--soft); padding:0 4px; }
+
+  @media (max-width:1000px) {
+    .g-hub, .g-two, .traps { grid-template-columns:1fr; }
+    svg.wires { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Defaqto SalesDB &mdash; raw file ERD</h1>
+  <p class="lede">The eight extracts as supplied. Every row count, key and coverage figure below was
+  measured against the loaded data, not inferred from column names. Six blue files are
+  <strong>short-term car only</strong>; two amber files cover <strong>all ten product lines</strong>.</p>
+</header>
+
+<h2>Quote system &mdash; short-term car only &middot; everything hangs off QUOTE_ID</h2>
+<div class="board">
+  <svg class="wires" id="w1" aria-hidden="true"></svg>
+  <div class="zone grid g-hub">
+
+    <div class="stack">
+      <div class="tbl q" id="t-personal">
+        <div class="th"><span class="nm">RAW_STC_PERSONAL</span>
+          <span class="fn">STC_Personal_Attributes.csv.gz</span>
+          <span class="rc">337,272 rows &middot; 1 per quote</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> QUOTE_ID</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> AGE_YEARS</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> OUTWARD_POSTCODE</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> OCCUPATION_NAME</li>
+          <li class="more">+ 3 more</li>
+        </ul>
+        <div class="cov">Covers <strong>57.2%</strong> of quotes</div>
+      </div>
+
+      <div class="tbl q" id="t-cover">
+        <div class="th"><span class="nm">RAW_STC_COVER</span>
+          <span class="fn">STC_CoverDetails.csv.gz</span>
+          <span class="rc">331,648 rows &middot; 1 per quote</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> QUOTE_ID</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> REASON_FOR_COVER_LABEL</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> COVER_LENGTH_VALUE</li>
+          <li class="more">+ 7 more</li>
+        </ul>
+        <div class="cov">Covers <strong>56.2%</strong> &middot; 332 rows missing the length value</div>
+      </div>
+
+      <div class="tbl q" id="t-veh">
+        <div class="th"><span class="nm">RAW_STC_VEHICLES</span>
+          <span class="fn">STC_Vehicles.csv.gz</span>
+          <span class="rc">319,415 rows &middot; 1 per quote</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> QUOTE_ID</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> VEHICLE_MAKE / MODEL</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> VEHICLE_FUEL, VEHICLE_VALUE</li>
+          <li class="more">+ 5 more</li>
+        </ul>
+        <div class="cov">Covers <strong>54.2%</strong> &middot; 1 row rejected on load</div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="tbl q" id="t-quotes">
+        <div class="th"><span class="nm">RAW_STC_QUOTES</span>
+          <span class="fn">STC_Quotes.csv.gz &mdash; the hub</span>
+          <span class="rc">589,796 rows &middot; QUOTE_ID unique</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> QUOTE_ID</li>
+          <li><span class="kb fk">FK</span> AFFILIATE_ID &nbsp;<em>&mdash; no name column</em></li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> CREATED, DATE_TIME</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> VISITED_RESULTS, VALID</li>
+          <li class="more">+ 4 more</li>
+        </ul>
+        <div class="cov">No <strong>site arrivals</strong> here &mdash; every row is already a quote</div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="tbl q" id="t-rates">
+        <div class="th"><span class="nm">RAW_STC_RATES</span>
+          <span class="fn">STC_Rates.csv &mdash; not gzipped, 186 MB</span>
+          <span class="rc">1,533,886 rows &middot; RATE_ID unique</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> RATE_ID</li>
+          <li><span class="kb fk">FK</span> QUOTE_ID</li>
+          <li><span class="kb fk">FK</span> PROVIDER_ID <em>&mdash; STC namespace</em></li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> PRICE, STATUS, DECLINE_REASON</li>
+          <li class="more">+ 9 more</li>
+        </ul>
+        <div class="cov">Only <strong>298,844 quotes (50.7%)</strong> got any price &middot;
+          <strong>5.13</strong> rates each &middot; STATUS=1 &rarr; 259,109 priced quotes</div>
+      </div>
+
+      <div class="tbl q" id="t-clicks">
+        <div class="th"><span class="nm">RAW_STC_CLICKS</span>
+          <span class="fn">STC_Clicks.csv.gz</span>
+          <span class="rc">193,756 rows &middot; CLICK_ID unique</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> CLICK_ID</li>
+          <li><span class="kb fk">FK</span> QUOTE_ID</li>
+          <li><span class="kb fk">FK</span> RATE_ID &nbsp;<em>&mdash; 100% resolve</em></li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> VALID, INVALID_REASON</li>
+          <li class="more">+ 3 more</li>
+        </ul>
+        <div class="cov"><strong>126,236</strong> distinct quotes clicked &middot; 1.53 clicks each</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="legend">
+    <span><i class="sw" style="border-color:var(--quote)"></i> clean join</span>
+    <span><i class="sw" style="border-color:var(--bad);border-top-style:dashed"></i> unsafe join &mdash; see traps</span>
+    <span><i class="sw" style="border-color:var(--bridge);border-top-style:dotted"></i> resolved via bridge</span>
+    <span><span class="kb pk">PK</span> primary key</span>
+    <span><span class="kb fk">FK</span> foreign key</span>
+  </div>
+</div>
+
+<h2>Sales system &mdash; all ten product lines &middot; and the bridge</h2>
+<div class="board">
+  <svg class="wires" id="w2" aria-hidden="true"></svg>
+  <div class="zone grid g-two">
+
+    <div class="stack">
+      <div class="tbl s" id="t-sales">
+        <div class="th"><span class="nm">RAW_SALES_EVENTS</span>
+          <span class="fn">SalesDB_SaleEvents.csv.gz</span>
+          <span class="rc">208,388 rows &middot; <em>no primary key</em></span></div>
+        <ul class="cols">
+          <li><span class="kb fk">FK</span> QUOTE_ID <em>&mdash; only 192,932 distinct</em></li>
+          <li><span class="kb fk">FK</span> PROVIDER_ID <em>&mdash; SalesDB namespace</em></li>
+          <li><span class="kb fk">FK</span> AFFILIATE_ID + AFFILIATE_NAME</li>
+          <li><span class="kb fk">FK</span> PRODUCTTYPE_ID <em>&mdash; 1&hellip;11</em></li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> GWP, COMMISSION, CANCELLATION</li>
+          <li class="more">+ 11 more</li>
+        </ul>
+        <div class="cov">5,995 QUOTE_IDs repeat &mdash; 2,156 are sale + cancellation pairs,
+          1,364 are the <strong>same ID under a different product</strong></div>
+      </div>
+
+      <div class="tbl s" id="t-agg">
+        <div class="th"><span class="nm">RAW_SALES_AGG</span>
+          <span class="fn">SalesDB_Aggregate.csv.gz</span>
+          <span class="rc">25,235 rows &middot; pre-aggregated</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> SALE_DATE + AFFILIATE_ID +</li>
+          <li><span class="kb pk">&nbsp;&nbsp;</span> PROVIDER_ID + PRODUCTTYPE_ID +</li>
+          <li><span class="kb pk">&nbsp;&nbsp;</span> CANCELLATION</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> ROW_COUNT, DISTINCT_QUOTES</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> TOTAL_GWP, TOTAL_COMMISSION</li>
+        </ul>
+        <div class="cov">Grain confirmed unique &middot; totals reconcile exactly to the events file</div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="tbl b" id="t-prov">
+        <div class="th"><span class="nm">PROVIDER_SRC</span>
+          <span class="fn">the bridge &mdash; provider name crosswalk</span>
+          <span class="rc">253 rows &middot; PK is composite</span></div>
+        <ul class="cols">
+          <li><span class="kb pk">PK</span> SYSTEM &nbsp;<em>&mdash; 'STC' or SalesDB</em></li>
+          <li><span class="kb pk">PK</span> PROVIDER_ID</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> PROVIDER_NAME</li>
+          <li><span class="kb gr">&nbsp;&nbsp;</span> NORM_NAME</li>
+        </ul>
+        <div class="cov"><strong>7</strong> IDs from the quote system,
+          <strong>246</strong> from sales &rarr; resolve to <strong>73</strong> companies,
+          only <strong>7</strong> in both. In sales, PROVIDER_ID is really
+          <strong>provider &times; comparison site</strong></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<h2>The three joins that lie &mdash; click for detail</h2>
+<div class="traps" id="traps"></div>
+<div id="detail" hidden aria-live="polite"></div>
+
+<footer>
+  Source: the eight extracts supplied by Defaqto, loaded into DEFAQTO_DEMO.SALESDB.
+  Funnel: 589,796 quoted &rarr; 259,109 priced &rarr; 126,236 clicked &rarr; 71,743 sold (short-term car).
+</footer>
+
+</div>
+
+<script>
+/* ---------- trap content ---------- */
+const TRAPS = {
+  t1: {
+    kicker: "QUOTE_ID across products",
+    title: "Sales joined to quotes without a product filter",
+    sub: "10,032 false matches \u00b7 \u00a31,645,091 \u00b7 54.4% inflation",
+    metric: "The worst one. Silent, plausible, and material.",
+    body: "Quote IDs are generated per product database, so they collide across products. Join RAW_SALES_EVENTS to RAW_STC_QUOTES on QUOTE_ID alone and 6,932 Gap, 2,043 Bicycle and 1,054 Home Emergency sales attach themselves to short-term car quotes. No error is raised. Short-term car GWP reads \u00a34.67m instead of \u00a33.02m.",
+    sql: "-- WRONG: returns rows, no error, 54% too much GWP\nSELECT SUM(s.GWP)\nFROM RAW_SALES_EVENTS s\nJOIN RAW_STC_QUOTES q ON q.QUOTE_ID = s.QUOTE_ID;\n\n-- RIGHT: the product filter is not optional\nSELECT SUM(s.GWP)\nFROM RAW_SALES_EVENTS s\nJOIN RAW_STC_QUOTES q ON q.QUOTE_ID = s.QUOTE_ID\nWHERE s.PRODUCTTYPE_ID = 11;"
+  },
+  t2: {
+    kicker: "PROVIDER_ID across systems",
+    title: "Provider IDs do not mean the same thing in both systems",
+    sub: "7 quote-side IDs vs 246 sales-side \u00b7 73 real companies",
+    metric: "Joining them returns rows. They are the wrong rows.",
+    body: "The two systems keep separate provider namespaces, so PROVIDER_ID cannot be joined across them. Resolution runs through PROVIDER_SRC on the name. Worse, in the sales system PROVIDER_ID is really a provider-by-comparison-site key \u2014 for some providers there are 10 provider IDs and exactly 10 distinct provider-ID-to-affiliate pairs. a large provider has five IDs because a large provider is on five comparison sites.",
+    sql: "-- Never do this\nJOIN ON rates.PROVIDER_ID = sales.PROVIDER_ID\n\n-- Resolve through the bridge, then to a canonical key\nSELECT p_stc.PROVIDER_ID, p_sales.PROVIDER_ID, x.CANONICAL_PROVIDER_KEY\nFROM PROVIDER_SRC p_stc\nJOIN PROVIDER_SRC p_sales ON p_sales.NORM_NAME = p_stc.NORM_NAME\nWHERE p_stc.SYSTEM = 'STC' AND p_sales.SYSTEM <> 'STC';"
+  },
+  t3: {
+    kicker: "AFFILIATE_ID across systems",
+    title: "The comparison-site IDs overlap but may not agree",
+    sub: "Quote side has {2,3} and no name column",
+    metric: "Unprovable either way from the data alone \u2014 ask them.",
+    body: "The quote file carries AFFILIATE_ID but no AFFILIATE_NAME, so labelling quote traffic means borrowing names from the sales side. Both files use IDs 2 and 3, so the join succeeds. But quote-side ID 3 has 26,778 quotes while sales-side ID 3 (comparethemarket.com) has 122 sales in total. Either that is a 0.5% conversion rate or ID 3 means different things in the two systems, and nothing in the data settles it.",
+    sql: "-- Looks fine. May be attributing traffic to the wrong partner.\nSELECT a.AFFILIATE_NAME, COUNT(*)\nFROM RAW_STC_QUOTES q\nJOIN (SELECT DISTINCT AFFILIATE_ID, AFFILIATE_NAME\n      FROM RAW_SALES_EVENTS) a\n  ON a.AFFILIATE_ID = q.AFFILIATE_ID\nGROUP BY 1;"
+  }
+};
+
+const trapEl = document.getElementById("traps");
+Object.entries(TRAPS).forEach(([k, t]) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "trap"; b.dataset.trap = k;
+  b.setAttribute("aria-expanded", "false");
+  b.innerHTML = '<span class="tt">' + t.kicker + '</span><span class="ts">' + t.sub +
+                '</span><span class="tm">' + t.metric + '</span>';
+  trapEl.appendChild(b);
+});
+
+const detail = document.getElementById("detail");
+let active = null;
+function closeDetail() {
+  detail.hidden = true; detail.innerHTML = ""; active = null;
+  document.querySelectorAll("[data-trap]").forEach(b => b.setAttribute("aria-expanded", "false"));
+}
+document.addEventListener("click", e => {
+  const btn = e.target.closest("[data-trap]");
+  if (e.target.id === "closeBtn") { closeDetail(); return; }
+  if (!btn) return;
+  const k = btn.dataset.trap;
+  if (active === k) { closeDetail(); return; }
+  const t = TRAPS[k];
+  document.querySelectorAll("[data-trap]").forEach(b =>
+    b.setAttribute("aria-expanded", String(b === btn)));
+  detail.innerHTML = '<button id="closeBtn" type="button">Close</button><h3>' + t.title +
+    "</h3><p>" + t.body + "</p><pre>" + t.sql.replace(/&/g,"&amp;").replace(/</g,"&lt;") + "</pre>";
+  detail.hidden = false; active = k;
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
+
+/* ---------- connectors, computed from live geometry ---------- */
+const LINKS = [
+  ["w1", "t-quotes", "t-personal", "1 : 0..1", "ok"],
+  ["w1", "t-quotes", "t-cover",    "1 : 0..1", "ok"],
+  ["w1", "t-quotes", "t-veh",      "1 : 0..1", "ok"],
+  ["w1", "t-quotes", "t-rates",    "1 : 0..N  QUOTE_ID", "ok"],
+  ["w1", "t-rates",  "t-clicks",   "1 : 0..N  RATE_ID",  "ok"],
+  ["w2", "t-sales",  "t-prov",     "PROVIDER_ID", "brg"],
+  ["w2", "t-sales",  "t-agg",      "rolls up to", "ok"]
+];
+
+function pathBetween(a, b, host) {
+  const aL = a.left < b.left;
+  const x1 = (aL ? a.right : a.left) - host.left;
+  const x2 = (aL ? b.left : b.right) - host.left;
+  const y1 = a.top + a.height / 2 - host.top;
+  const y2 = b.top + b.height / 2 - host.top;
+  const dx = Math.max(24, Math.abs(x2 - x1) * 0.45) * (aL ? 1 : -1);
+  return { d: "M" + x1 + "," + y1 + " C" + (x1 + dx) + "," + y1 + " " +
+              (x2 - dx) + "," + y2 + " " + x2 + "," + y2,
+           mx: (x1 + x2) / 2, my: (y1 + y2) / 2 - 6 };
+}
+
+function draw() {
+  ["w1", "w2"].forEach(id => {
+    const svg = document.getElementById(id);
+    const host = svg.parentElement.getBoundingClientRect();
+    svg.setAttribute("viewBox", "0 0 " + host.width + " " + host.height);
+    let out = "";
+    LINKS.filter(l => l[0] === id).forEach(([, fromId, toId, label, cls]) => {
+      const f = document.getElementById(fromId), t = document.getElementById(toId);
+      if (!f || !t) return;
+      const p = pathBetween(f.getBoundingClientRect(), t.getBoundingClientRect(), host);
+      out += '<path class="' + cls + '" d="' + p.d + '"></path>' +
+             '<text x="' + p.mx + '" y="' + p.my + '" text-anchor="middle">' + label + "</text>";
+    });
+    svg.innerHTML = out;
+  });
+}
+window.addEventListener("resize", draw);
+window.addEventListener("load", draw);
+draw();
+</script>
+</body>
+</html>

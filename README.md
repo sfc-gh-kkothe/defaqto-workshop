@@ -141,8 +141,12 @@ and refuses to run unless `RAW` holds all seven tables. Run the dry-run block at
 
 ```
 setup/          facilitator SQL, run once, in order
-notebooks/      the four attendee notebooks
+notebooks/      the five attendee notebooks
 dbt_project/    the same transforms as dbt, for module 2
 streamlit/      two apps, container runtime, pinned dependencies
+docs/erd.html   the raw-layer ERD, walked through before module 1
 skills/         optional Cortex Code Desktop extension
 ```
+
+Open `docs/erd.html` in a browser. It is self-contained: no external scripts, no
+remote images, nothing to install.
