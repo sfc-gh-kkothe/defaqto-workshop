@@ -1,205 +1,157 @@
 /* ============================================================================
-   Defaqto workshop — teardown
+   Teardown — simple version
 
-   Removes everything the workshop creates and LEAVES DEFAQTO_DB.RAW UNTOUCHED.
-   Run as ACCOUNTADMIN. Safe to re-run.
+   Plain DROP statements, in dependency order, for ONE person's workshop objects.
+   Reads top to bottom. No scripting blocks, so this runs anywhere:
+   a Snowsight worksheet, or snow sql -f.
 
-   What it removes
-     - every DEFAQTO_DB.TRANSFORMED_* schema and all its contents:
-       dynamic tables, PARTNER_ACCESS, row access policies, the semantic view,
-       the Cortex Agent, the Streamlit apps, the APPS stage
-     - the Streamlit container services those apps own
-     - every PARTNER_* role and the users whose default role is one of them
-     - the WORKSHOP workspace
-     - suspends the compute pool and the warehouse
+   Leaves DEFAQTO_DB.RAW alone. That is the only thing worth keeping.
 
-   What it deliberately does NOT touch
-     - DEFAQTO_DB.RAW and its seven landed tables  <-- the data
-     - DEFAQTO_DB itself
-     - change tracking on RAW (notebook 01 needs it again next run)
-     - @DEFAQTO_DB.PUBLIC.RELOAD_STAGE
-     - the dbt project object and DBT_* schemas (see the opt-in block at the end)
+   Change ONE line - the schema on line 20 - then run the whole file.
 
-   ---------------------------------------------------------------------------
-   HOW TO RUN THIS - read before you do
-   ---------------------------------------------------------------------------
-   This file contains Snowflake Scripting blocks (DECLARE ... BEGIN ... END),
-   which contain their own semicolons.
-
-   USE:  Snowsight worksheet - paste the file, Run All.
-   USE:  EXECUTE IMMEDIATE FROM @stage/99_teardown.sql;
-
-   DO NOT USE:  snow sql -f 99_teardown.sql
-                The CLI splits input on ';' and will cut each block into
-                fragments. It fails with "unexpected '<EOF>'" - verified, not
-                theoretical. Run the blocks one at a time if you must use it.
-
-   Author: Ketki Kothe (Snowflake Solution Engineering)
+   For several attendees at once, use 99b_teardown_all_attendees.sql instead.
 ============================================================================ */
 
 USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE COMPUTE_WH;
 
-/* -- 0. DRY RUN ------------------------------------------------------------ */
-/* Run this block ON ITS OWN first. It changes nothing and prints exactly what
-   the rest of the file would remove. If the list surprises you, stop. */
+-- >>> THE ONLY LINE TO EDIT <<<
+USE SCHEMA DEFAQTO_DB.TRANSFORMED_KKOTHE;
 
-DECLARE
-    sc CURSOR FOR SELECT SCHEMA_NAME AS n FROM DEFAQTO_DB.INFORMATION_SCHEMA.SCHEMATA
-                  WHERE SCHEMA_NAME LIKE 'TRANSFORMED_%';
-    schemas ARRAY := ARRAY_CONSTRUCT();
-    users   ARRAY := ARRAY_CONSTRUCT();
-    roles   ARRAY := ARRAY_CONSTRUCT();
-    raw_ct  INT;
-BEGIN
-    SELECT COUNT(*) INTO raw_ct FROM DEFAQTO_DB.INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = 'RAW' AND TABLE_TYPE = 'BASE TABLE';
+/* Everything below is unqualified on purpose, so it resolves against the schema
+   above and there is nothing else to keep in sync. */
 
-    FOR r IN sc DO schemas := ARRAY_APPEND(schemas, r.n); END FOR;
 
-    LET uc CURSOR FOR SELECT "name" AS n FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-                      WHERE "default_role" LIKE 'PARTNER_%';
-    SHOW USERS;
-    FOR r IN uc DO users := ARRAY_APPEND(users, r.n); END FOR;
+/* -- 1. Streamlit apps ---------------------------------------------------- */
+/* First, because each container app owns an SPCS service that holds the compute
+   pool busy. Both locations are listed: apps deployed by 02_deploy_streamlits.sql
+   live in DEFAQTO_DB.APPS, earlier ones lived in the attendee schema. */
 
-    LET rc CURSOR FOR SELECT "name" AS n FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-                      WHERE "name" LIKE 'PARTNER_%';
-    SHOW ROLES;
-    FOR r IN rc DO roles := ARRAY_APPEND(roles, r.n); END FOR;
+DROP STREAMLIT IF EXISTS DEFAQTO_DB.APPS.DEFAQTO_INTERNAL_MI;
+DROP STREAMLIT IF EXISTS DEFAQTO_DB.APPS.DEFAQTO_PARTNER_INSIGHTS;
+DROP STREAMLIT IF EXISTS DEFAQTO_INTERNAL_MI_SIMPLE;
+DROP STREAMLIT IF EXISTS DEFAQTO_PARTNER_INSIGHTS_SIMPLE;
 
-    RETURN 'RAW tables kept: '  || raw_ct
-        || '  |  schemas to drop: ' || NVL(ARRAY_TO_STRING(schemas, ', '), 'none')
-        || '  |  users to drop: '   || NVL(ARRAY_TO_STRING(users,   ', '), 'none')
-        || '  |  roles to drop: '   || NVL(ARRAY_TO_STRING(roles,   ', '), 'none');
-END;
 
-/* -- Guard: refuse to run if RAW is not intact ----------------------------- */
-/* A teardown that runs against a half-built account is how data gets lost.
-   This fails loudly rather than proceeding on an account it does not recognise. */
+/* -- 2. Agent and semantic view ------------------------------------------- */
+/* Agent first: it references the semantic view. */
 
-DECLARE
-    raw_tables INT;
-BEGIN
-    SELECT COUNT(*) INTO raw_tables
-    FROM   DEFAQTO_DB.INFORMATION_SCHEMA.TABLES
-    WHERE  TABLE_SCHEMA = 'RAW' AND TABLE_TYPE = 'BASE TABLE';
+DROP AGENT         IF EXISTS DEFAQTO_ANALYST;
+DROP SEMANTIC VIEW IF EXISTS DEFAQTO_INSIGHTS;
 
-    IF (raw_tables <> 7) THEN
-        RETURN 'ABORTED: expected 7 tables in DEFAQTO_DB.RAW, found ' ||
-               raw_tables || '. Teardown not run.';
-    END IF;
-    RETURN 'RAW intact (' || raw_tables || ' tables). Safe to proceed.';
-END;
 
-/* -- 1. Drop the participant schemas -------------------------------------- */
-/* One block handles any number of attendees. DROP SCHEMA CASCADE takes the
-   dynamic tables, the semantic view, the agent, the Streamlit apps (and with
-   them their container services), the APPS stage, PARTNER_ACCESS and both row
-   access policies in one statement each.
+/* -- 3. Row access policies ----------------------------------------------- */
+/* Detach before dropping. A policy cannot be dropped while it is attached, and
+   DROP ALL is a no-op on a table with none - so this is safe either way. */
 
-   Row access policies are dropped with their schema, so they do not need
-   detaching first - every policy and every table it guards live together in
-   the same TRANSFORMED_* schema. */
+ALTER DYNAMIC TABLE IF EXISTS GOLD_PROVIDER_DAILY    DROP ALL ROW ACCESS POLICIES;
+ALTER DYNAMIC TABLE IF EXISTS GOLD_COHORT_CONVERSION DROP ALL ROW ACCESS POLICIES;
+ALTER DYNAMIC TABLE IF EXISTS GOLD_FUNNEL_DAILY      DROP ALL ROW ACCESS POLICIES;
 
-DECLARE
-    c CURSOR FOR
-        SELECT SCHEMA_NAME
-        FROM   DEFAQTO_DB.INFORMATION_SCHEMA.SCHEMATA
-        WHERE  SCHEMA_NAME LIKE 'TRANSFORMED_%';
-    dropped ARRAY := ARRAY_CONSTRUCT();
-BEGIN
-    FOR r IN c DO
-        EXECUTE IMMEDIATE 'DROP SCHEMA IF EXISTS DEFAQTO_DB."' ||
-                          r.SCHEMA_NAME || '" CASCADE';
-        dropped := ARRAY_APPEND(dropped, r.SCHEMA_NAME);
-    END FOR;
-    RETURN 'dropped schemas: ' || ARRAY_TO_STRING(dropped, ', ');
-END;
+DROP ROW ACCESS POLICY IF EXISTS PROVIDER_RAP;
+DROP ROW ACCESS POLICY IF EXISTS PCW_RAP;
 
-/* -- 2. Drop partner users, then partner roles ---------------------------- */
-/* Users first: a role cannot be dropped cleanly while it is somebody's default.
-   Users are matched on their default role, not on a name pattern - matching
-   '%_USER' would be a coin flip on any account with real logins. */
 
-DECLARE
-    c CURSOR FOR
-        SELECT "name" AS n
-        FROM   TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-        WHERE  "default_role" LIKE 'PARTNER_%';
-    dropped ARRAY := ARRAY_CONSTRUCT();
-BEGIN
-    SHOW USERS;
-    FOR r IN c DO
-        EXECUTE IMMEDIATE 'DROP USER IF EXISTS "' || r.n || '"';
-        dropped := ARRAY_APPEND(dropped, r.n);
-    END FOR;
-    RETURN 'dropped users: ' || NVL(ARRAY_TO_STRING(dropped, ', '), 'none');
-END;
+/* -- 4. Gold dynamic tables ----------------------------------------------- */
+/* Gold before silver: a dynamic table cannot be dropped while another one reads
+   from it. */
 
-DECLARE
-    c CURSOR FOR
-        SELECT "name" AS n
-        FROM   TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-        WHERE  "name" LIKE 'PARTNER_%';
-    dropped ARRAY := ARRAY_CONSTRUCT();
-BEGIN
-    SHOW ROLES;
-    FOR r IN c DO
-        EXECUTE IMMEDIATE 'DROP ROLE IF EXISTS "' || r.n || '"';
-        dropped := ARRAY_APPEND(dropped, r.n);
-    END FOR;
-    RETURN 'dropped roles: ' || NVL(ARRAY_TO_STRING(dropped, ', '), 'none');
-END;
+DROP DYNAMIC TABLE IF EXISTS GOLD_COHORT_CONVERSION;
+DROP DYNAMIC TABLE IF EXISTS GOLD_PROVIDER_DAILY;
+DROP DYNAMIC TABLE IF EXISTS GOLD_FUNNEL_DAILY;
 
-/* -- 3. Drop the workspace ------------------------------------------------ */
-/* Only the shared one. Personal DEFAULT$ workspaces in USER$<name>.PUBLIC are
-   left alone - they are not workshop artefacts and dropping them would take
-   somebody's own files with them. */
+
+/* -- 5. Silver dynamic tables --------------------------------------------- */
+/* Reverse dependency order:
+       SILVER_PROVIDER  <-  RATES / CLICKS / SALES  <-  QUOTE_PROVIDER  <-  gold
+       SILVER_SALES     <-  SILVER_SALESDB_AGGREGATE                            */
+
+DROP DYNAMIC TABLE IF EXISTS SILVER_SALESDB_AGGREGATE;
+DROP DYNAMIC TABLE IF EXISTS SILVER_QUOTE_PROVIDER;
+DROP DYNAMIC TABLE IF EXISTS SILVER_SALES;
+DROP DYNAMIC TABLE IF EXISTS SILVER_CLICKS;
+DROP DYNAMIC TABLE IF EXISTS SILVER_RATES;
+DROP DYNAMIC TABLE IF EXISTS SILVER_QUOTES;
+DROP DYNAMIC TABLE IF EXISTS SILVER_PROVIDER;
+
+
+/* -- 6. Supporting objects ------------------------------------------------ */
+
+DROP TABLE IF EXISTS PARTNER_ACCESS;
+DROP STAGE IF EXISTS APPS;
+
+
+/* -- 7. Notebooks --------------------------------------------------------- */
+/* Notebooks opened from a Workspace are files, not NOTEBOOK objects, so the
+   workspace drop in section 9 removes them. Uncomment these only if you also
+   created standalone notebooks (Projects > Notebooks). Check first with:
+       SHOW NOTEBOOKS IN ACCOUNT;
+
+   DROP NOTEBOOK IF EXISTS DEFAQTO_01_EXPLORE_AND_BUILD_DYNAMIC_TABLES;
+   DROP NOTEBOOK IF EXISTS DEFAQTO_02_DBT_PROJECT;
+   DROP NOTEBOOK IF EXISTS DEFAQTO_03_SEMANTIC_VIEW_TALK_TO_YOUR_DATA;
+   DROP NOTEBOOK IF EXISTS DEFAQTO_04_ROW_ACCESS_POLICY;                      */
+
+
+/* -- 8. The schema itself ------------------------------------------------- */
+/* CASCADE catches anything the sections above missed - a table you added by
+   hand, a view, a stage. Everything named so far is listed explicitly anyway,
+   so that you can see what the workshop built rather than trusting one line. */
+
+DROP SCHEMA IF EXISTS DEFAQTO_DB.TRANSFORMED_KKOTHE CASCADE;   -- edit to match line 20
+
+-- Apps schema, if you used 02_deploy_streamlits.sql:
+DROP SCHEMA IF EXISTS DEFAQTO_DB.APPS CASCADE;
+
+
+/* -- 9. Workspace --------------------------------------------------------- */
+/* This removes the notebooks. Personal DEFAULT$ workspaces in USER$<name>.PUBLIC
+   are left alone - they are not workshop objects. */
 
 DROP WORKSPACE IF EXISTS DEFAQTO_DB.PUBLIC.WORKSHOP;
 
-/* -- 4. Stand the compute down -------------------------------------------- */
-/* Check what else is on the pool before suspending it - it is shared with
-   Notebook and Workspace sessions, so it is rarely only yours:
-       SHOW SERVICES IN COMPUTE POOL SYSTEM_COMPUTE_POOL_CPU; */
+
+/* -- 10. Partner user and role -------------------------------------------- */
+/* User before role: a role cannot be dropped cleanly while it is somebody's
+   default. Add a line per insurer you used. */
+
+DROP USER IF EXISTS ZIXTY_USER;
+DROP USER IF EXISTS VEYGO_USER;
+DROP USER IF EXISTS COVERTIME_USER;
+
+DROP ROLE IF EXISTS PARTNER_ZIXTY;
+DROP ROLE IF EXISTS PARTNER_VEYGO;
+DROP ROLE IF EXISTS PARTNER_COVERTIME;
+
+
+/* -- 11. Stand the compute down ------------------------------------------- */
+/* Check what else is on the pool first - it is shared with Notebook and
+   Workspace sessions, so it is rarely only yours:
+       SHOW SERVICES IN COMPUTE POOL SYSTEM_COMPUTE_POOL_CPU;                 */
 
 ALTER COMPUTE POOL IF EXISTS SYSTEM_COMPUTE_POOL_CPU SUSPEND;
 ALTER WAREHOUSE    IF EXISTS COMPUTE_WH              SUSPEND;
 
-/* -- 5. Verify what is left ----------------------------------------------- */
+
+/* -- 12. Check what is left ----------------------------------------------- */
+/* Expect: RAW, PUBLIC, INFORMATION_SCHEMA, and the DBT_* schemas if you kept
+   the dbt project. RAW must still hold its seven tables. */
 
 SHOW SCHEMAS IN DATABASE DEFAQTO_DB;
-SELECT "name" AS remaining_schema
-FROM   TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-ORDER  BY 1;
 
 SELECT TABLE_NAME, ROW_COUNT
 FROM   DEFAQTO_DB.INFORMATION_SCHEMA.TABLES
 WHERE  TABLE_SCHEMA = 'RAW'
 ORDER  BY TABLE_NAME;
 
-/* ============================================================================
-   OPT-IN: dbt objects
-   ----------------------------------------------------------------------------
-   Left in place by default. Uncomment only for a completely clean re-test.
-
-   DBT_UNSET_* is the sentinel your generate_schema_name macro writes to when a
-   run omits --vars '{alias: ...}'. Leaving it is arguably better than removing
-   it: it is visible evidence the guard rail fires.
-
-   DROP SCHEMA IF EXISTS DEFAQTO_DB.DBT_<ALIAS>_MARTS   CASCADE;
-   DROP SCHEMA IF EXISTS DEFAQTO_DB.DBT_<ALIAS>_STAGING CASCADE;
-   DROP SCHEMA IF EXISTS DEFAQTO_DB.DBT_UNSET_MARTS    CASCADE;
-   DROP SCHEMA IF EXISTS DEFAQTO_DB.DBT_UNSET_STAGING  CASCADE;
-   DROP DBT PROJECT IF EXISTS DEFAQTO_DB.DBT.DEFAQTO_SALESDB_DBT;
-   DROP SCHEMA IF EXISTS DEFAQTO_DB.DBT CASCADE;
-============================================================================ */
 
 /* ============================================================================
-   OPT-IN: account leftovers unrelated to this project
+   NOT removed on purpose
    ----------------------------------------------------------------------------
-   DROP DATABASE  IF EXISTS SNOWFLAKE_LEARNING_DB;
-   DROP WAREHOUSE IF EXISTS SNOWFLAKE_LEARNING_WH;
-   DROP ROLE      IF EXISTS SNOWFLAKE_LEARNING_ROLE;
-   REMOVE @DEFAQTO_DB.PUBLIC.RELOAD_STAGE;   -- 5 of 7 files only, not a backup
+   DEFAQTO_DB.RAW and its seven tables   the data
+   DEFAQTO_DB itself
+   Change tracking on RAW                notebook 01 needs it again next time
+   COMPUTE_WH                            suspended, not dropped
+   DEFAQTO_HOL_ROLE                      created by 00_admin_setup.sql
+   The dbt project and DBT_* schemas     see 99b for the opt-in drops
 ============================================================================ */
